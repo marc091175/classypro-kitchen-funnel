@@ -52,3 +52,41 @@ Vercel serves the repository root as static files. Every push to `main`
 redeploys. Database changes live in `supabase/migrations/`.
 
 <!-- deploy pipeline verified 2026-08-29 -->
+
+## Booking notifications
+
+Every insert into `bookings` fires the `trg_notify_booking_created` trigger,
+which calls the `notify-booking` Edge Function over `pg_net`. The function sends
+an alert on whichever channels are configured — email and WhatsApp are
+independent, so one failing never suppresses the other.
+
+The trigger authenticates to the function with a shared secret that is generated
+inside Postgres and **never leaves it**: the function verifies a candidate secret
+via `verify_notify_secret()`, which returns only a boolean and is executable
+solely by `service_role`. The function runs with `verify_jwt = false` because its
+caller is a database trigger, not a signed-in user.
+
+A notification failure can never block a booking — the trigger swallows its own
+errors and records them in `private.notification_log`.
+
+### Configuring channels
+
+Set these as Edge Function secrets (`supabase secrets set KEY=value`):
+
+| Channel | Required secrets |
+|---|---|
+| Email | `RESEND_API_KEY`, `NOTIFY_EMAIL_TO` |
+| WhatsApp (Twilio) | `WHATSAPP_PROVIDER=twilio`, `WHATSAPP_TO`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` |
+| WhatsApp (Meta) | `WHATSAPP_PROVIDER=meta`, `WHATSAPP_TO`, `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE` |
+
+Meta only delivers business-initiated messages via an approved template outside
+the 24-hour customer-service window; set `WHATSAPP_TEMPLATE` once approved.
+
+### Checking delivery
+
+```sql
+select l.created_at, l.note, r.status_code, r.content
+from private.notification_log l
+left join net._http_response r on r.id = l.net_request_id
+order by l.id desc limit 20;
+```
