@@ -50,3 +50,5 @@ Supabase dashboard (Table Editor → `leads` / `bookings`) or a server-side
 
 Vercel serves the repository root as static files. Every push to `main`
 redeploys. Database changes live in `supabase/migrations/`.
+
+<!-- deploy pipeline verified 2026-08-29 -->
